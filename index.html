@@ -6,6 +6,7 @@
     body { font-family: monospace; padding: 20px; }
     button { padding: 10px 20px; margin: 5px; font-size: 16px; }
     #telemetry { margin-top: 20px; padding: 10px; background: #f0f0f0; }
+    #log { margin-top: 20px; padding: 10px; background: #fff3cd; font-size: 12px; max-height: 200px; overflow-y: auto; }
   </style>
 </head>
 <body>
@@ -24,6 +25,11 @@
     <button id="stop" disabled>Stop Winch</button>
   </div>
 
+  <div id="log">
+    <h3>Debug Log:</h3>
+    <pre id="logData"></pre>
+  </div>
+
   <script>
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const CHAR_UUID_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
@@ -31,26 +37,44 @@
     
     let device, server, service, txChar, rxChar;
     
+    function log(msg) {
+      const logEl = document.getElementById('logData');
+      logEl.textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
+      logEl.parentElement.scrollTop = logEl.parentElement.scrollHeight;
+      console.log(msg);
+    }
+    
     document.getElementById('connect').onclick = async () => {
       try {
+        log('Requesting device...');
         device = await navigator.bluetooth.requestDevice({
-          filters: [{ name: 'WinchRemote' }],
+          acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
         });
         
+        log('Device selected: ' + device.name);
+        log('Connecting to GATT server...');
         server = await device.gatt.connect();
+        
+        log('Getting service...');
         service = await server.getPrimaryService(SERVICE_UUID);
+        
+        log('Getting TX characteristic...');
         txChar = await service.getCharacteristic(CHAR_UUID_TX);
+        
+        log('Getting RX characteristic...');
         rxChar = await service.getCharacteristic(CHAR_UUID_RX);
         
-        // Subscribe to notifications
+        log('Starting notifications...');
         await txChar.startNotifications();
         txChar.addEventListener('characteristicvaluechanged', handleTelemetry);
         
-        document.getElementById('data').textContent = 'Connected!';
+        document.getElementById('data').textContent = 'Connected to ' + device.name + '!';
         enableButtons(true);
+        log('Successfully connected!');
       } catch(err) {
-        console.error('Connection failed:', err);
+        log('ERROR: ' + err.toString());
+        alert('Connection failed: ' + err);
       }
     };
     
@@ -59,6 +83,7 @@
         device.gatt.disconnect();
         enableButtons(false);
         document.getElementById('data').textContent = 'Disconnected';
+        log('Disconnected');
       }
     };
     
@@ -71,13 +96,15 @@
     }
     
     document.getElementById('start').onclick = async () => {
-      const cmd = new Uint8Array([0x01]); // Start command
+      const cmd = new Uint8Array([0x01]);
       await rxChar.writeValue(cmd);
+      log('Sent START command');
     };
     
     document.getElementById('stop').onclick = async () => {
-      const cmd = new Uint8Array([0x00]); // Stop command
+      const cmd = new Uint8Array([0x00]);
       await rxChar.writeValue(cmd);
+      log('Sent STOP command');
     };
     
     function enableButtons(connected) {
