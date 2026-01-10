@@ -1,65 +1,91 @@
-#include <bluefruit.h>
-
-// Custom service UUID
-#define SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHAR_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // Notify
-#define CHAR_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Write
-
-BLEService winchService(SERVICE_UUID);
-BLECharacteristic txChar(CHAR_UUID_TX);
-BLECharacteristic rxChar(CHAR_UUID_RX);
-
-// Forward declarations
-void startAdv();
-void rxCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
-
-void setup() {
-  Serial.begin(115200);
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Winch Remote PoC</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+    #telemetry { margin-top: 20px; padding: 10px; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>Winch Remote BLE PoC</h1>
+  <button id="connect">Connect</button>
+  <button id="disconnect" disabled>Disconnect</button>
   
-  Bluefruit.begin();
-  Bluefruit.setName("WinchRemote");
+  <div id="telemetry">
+    <h3>Telemetry:</h3>
+    <pre id="data">Not connected</pre>
+  </div>
   
-  winchService.begin();
-  
-  txChar.setProperties(CHR_PROPS_NOTIFY);
-  txChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  txChar.setFixedLen(20);
-  txChar.begin();
-  
-  rxChar.setProperties(CHR_PROPS_WRITE);
-  rxChar.setPermission(SECMODE_NO_ACCESS, SECMODE_OPEN);
-  rxChar.setWriteCallback(rxCallback);
-  rxChar.setFixedLen(20);
-  rxChar.begin();
-  
-  startAdv();
-  
-  Serial.println("Winch Remote BLE started");
-}
+  <div>
+    <h3>Commands:</h3>
+    <button id="start" disabled>Start Winch</button>
+    <button id="stop" disabled>Stop Winch</button>
+  </div>
 
-void startAdv() {
-  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  Bluefruit.Advertising.addTxPower();
-  Bluefruit.Advertising.addService(winchService);
-  Bluefruit.Advertising.addName();
-  Bluefruit.Advertising.start(0);
-}
-
-void rxCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
-  // Handle incoming commands
-  Serial.print("Received: ");
-  Serial.write(data, len);
-  Serial.println();
-}
-
-void loop() {
-  // Send telemetry every 100ms
-  static uint32_t lastSend = 0;
-  if (millis() - lastSend > 100) {
-    uint8_t data[20];
-    // Pack your telemetry here (speed, tension, etc)
-    data[0] = random(0, 100); // dummy data
-    txChar.notify(data, 20);
-    lastSend = millis();
-  }
-}
+  <script>
+    const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const CHAR_UUID_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+    const CHAR_UUID_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+    
+    let device, server, service, txChar, rxChar;
+    
+    document.getElementById('connect').onclick = async () => {
+      try {
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ name: 'WinchRemote' }],
+          optionalServices: [SERVICE_UUID]
+        });
+        
+        server = await device.gatt.connect();
+        service = await server.getPrimaryService(SERVICE_UUID);
+        txChar = await service.getCharacteristic(CHAR_UUID_TX);
+        rxChar = await service.getCharacteristic(CHAR_UUID_RX);
+        
+        // Subscribe to notifications
+        await txChar.startNotifications();
+        txChar.addEventListener('characteristicvaluechanged', handleTelemetry);
+        
+        document.getElementById('data').textContent = 'Connected!';
+        enableButtons(true);
+      } catch(err) {
+        console.error('Connection failed:', err);
+      }
+    };
+    
+    document.getElementById('disconnect').onclick = () => {
+      if (device && device.gatt.connected) {
+        device.gatt.disconnect();
+        enableButtons(false);
+        document.getElementById('data').textContent = 'Disconnected';
+      }
+    };
+    
+    function handleTelemetry(event) {
+      const value = event.target.value;
+      const data = new Uint8Array(value.buffer);
+      document.getElementById('data').textContent = 
+        `Data[0]: ${data[0]}\n` +
+        `Raw: ${Array.from(data).join(', ')}`;
+    }
+    
+    document.getElementById('start').onclick = async () => {
+      const cmd = new Uint8Array([0x01]); // Start command
+      await rxChar.writeValue(cmd);
+    };
+    
+    document.getElementById('stop').onclick = async () => {
+      const cmd = new Uint8Array([0x00]); // Stop command
+      await rxChar.writeValue(cmd);
+    };
+    
+    function enableButtons(connected) {
+      document.getElementById('connect').disabled = connected;
+      document.getElementById('disconnect').disabled = !connected;
+      document.getElementById('start').disabled = !connected;
+      document.getElementById('stop').disabled = !connected;
+    }
+  </script>
+</body>
+</html>
