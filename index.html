@@ -16,42 +16,6 @@
       flex-direction: column;
     }
     
-    /* Rotation warning for portrait mode */
-    .rotate-warning {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: #1a1a1a;
-      z-index: 9999;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-    }
-    
-    .rotate-icon {
-      font-size: 80px;
-      margin-bottom: 20px;
-      animation: rotate 2s infinite;
-    }
-    
-    @keyframes rotate {
-      0%, 100% { transform: rotate(0deg); }
-      50% { transform: rotate(90deg); }
-    }
-    
-    @media (orientation: portrait) {
-      .rotate-warning {
-        display: flex;
-      }
-      .main-content {
-        display: none;
-      }
-    }
-    
     .main-content {
       padding: 8px;
       height: 100vh;
@@ -68,7 +32,9 @@
       padding: 4px 10px;
       background: #2a2a2a;
       border-radius: 5px;
-      height: 40px;
+      min-height: 40px;
+      flex-wrap: wrap;
+      gap: 5px;
     }
     
     .header h1 {
@@ -80,6 +46,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
     
     .header button {
@@ -97,18 +64,53 @@
       cursor: not-allowed;
     }
     
+    .header button:hover:not(:disabled) {
+      background: #1976D2;
+    }
+    
+    .fullscreen-btn {
+      background: #FF9800 !important;
+    }
+    
+    .fullscreen-btn:hover {
+      background: #F57C00 !important;
+    }
+    
     .status {
       font-size: 10px;
       color: #888;
     }
     
-    /* Main content area */
+    /* Main content area - responsive */
     .content {
       flex: 1;
       display: grid;
-      grid-template-columns: 0.8fr 2fr 1fr;
       gap: 8px;
       overflow: hidden;
+    }
+    
+    /* Landscape layout */
+    @media (orientation: landscape) {
+      .content {
+        grid-template-columns: 0.8fr 2fr 1fr;
+      }
+    }
+    
+    /* Portrait layout */
+    @media (orientation: portrait) {
+      .content {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto 1fr;
+        overflow-y: auto;
+      }
+      
+      .middle-column {
+        grid-template-columns: 1fr 1fr !important;
+      }
+      
+      .state-value {
+        font-size: 60px !important;
+      }
     }
     
     /* Left column - STATE (big) */
@@ -127,6 +129,7 @@
       justify-content: center;
       align-items: center;
       padding: 10px;
+      min-height: 120px;
     }
     
     .state-label {
@@ -159,6 +162,7 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
+      min-height: 80px;
     }
     
     .medium-label {
@@ -283,20 +287,13 @@
   </style>
 </head>
 <body>
-  <!-- Rotation warning -->
-  <div class="rotate-warning">
-    <div class="rotate-icon">📱</div>
-    <h2>Please rotate your device</h2>
-    <p>This app works best in landscape mode</p>
-  </div>
-
-  <!-- Main content (landscape) -->
   <div class="main-content">
     <div class="header">
       <h1>🪂 Winch Remote</h1>
       <div class="controls">
         <button onclick="connect()" id="connectBtn">Connect</button>
         <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect</button>
+        <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
         <span class="status" id="status">Not connected</span>
       </div>
     </div>
@@ -451,6 +448,25 @@
         updateStatus('Disconnected');
       }
     }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+        document.getElementById('fullscreenBtn').textContent = '⛶ Exit';
+      } else {
+        document.exitFullscreen();
+        document.getElementById('fullscreenBtn').textContent = '⛶ Full';
+      }
+    }
+    
+    // Update button text when fullscreen changes (e.g., via ESC key)
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement) {
+        document.getElementById('fullscreenBtn').textContent = '⛶ Exit';
+      } else {
+        document.getElementById('fullscreenBtn').textContent = '⛶ Full';
+      }
+    });
 
     function handleTelemetry(event) {
       const data = new Uint8Array(event.target.value.buffer);
