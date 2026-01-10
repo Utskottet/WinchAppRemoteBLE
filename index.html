@@ -1,117 +1,102 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Winch Remote PoC</title>
+  <title>Winch Remote</title>
   <style>
     body { font-family: monospace; padding: 20px; }
     button { padding: 10px 20px; margin: 5px; font-size: 16px; }
-    #telemetry { margin-top: 20px; padding: 10px; background: #f0f0f0; }
-    #log { margin-top: 20px; padding: 10px; background: #fff3cd; font-size: 12px; max-height: 200px; overflow-y: auto; }
+    pre { background: #f0f0f0; padding: 10px; }
   </style>
 </head>
 <body>
-  <h1>Winch Remote BLE PoC</h1>
-  <button id="connect">Connect</button>
-  <button id="disconnect" disabled>Disconnect</button>
+  <h1>Winch Remote BLE</h1>
+  <button onclick="connect()">Connect to Winch</button>
+  <button onclick="disconnect()" disabled id="disconnectBtn">Disconnect</button>
+  <br><br>
+  <button onclick="sendCommand(1)" disabled id="startBtn">Start</button>
+  <button onclick="sendCommand(0)" disabled id="stopBtn">Stop</button>
   
-  <div id="telemetry">
-    <h3>Telemetry:</h3>
-    <pre id="data">Not connected</pre>
-  </div>
+  <h3>Telemetry:</h3>
+  <pre id="telemetry">Not connected</pre>
   
-  <div>
-    <h3>Commands:</h3>
-    <button id="start" disabled>Start Winch</button>
-    <button id="stop" disabled>Stop Winch</button>
-  </div>
-
-  <div id="log">
-    <h3>Debug Log:</h3>
-    <pre id="logData"></pre>
-  </div>
+  <h3>Debug Log:</h3>
+  <pre id="log"></pre>
 
   <script>
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-    const CHAR_UUID_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-    const CHAR_UUID_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+    const CHAR_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+    const CHAR_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
     
-    let device, server, service, txChar, rxChar;
-    
+    let device, server, txChar, rxChar;
+
     function log(msg) {
-      const logEl = document.getElementById('logData');
-      logEl.textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
-      logEl.parentElement.scrollTop = logEl.parentElement.scrollHeight;
+      document.getElementById('log').textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
       console.log(msg);
     }
-    
-    document.getElementById('connect').onclick = async () => {
+
+    async function connect() {
       try {
         log('Requesting device...');
         device = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
+          filters: [{ namePrefix: 'Winch' }],
           optionalServices: [SERVICE_UUID]
         });
         
-        log('Device selected: ' + device.name);
-        log('Connecting to GATT server...');
+        log('Found: ' + device.name);
+        
         server = await device.gatt.connect();
+        log('Connected to GATT');
         
-        log('Getting service...');
-        service = await server.getPrimaryService(SERVICE_UUID);
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        log('Got service');
         
-        log('Getting TX characteristic...');
-        txChar = await service.getCharacteristic(CHAR_UUID_TX);
+        txChar = await service.getCharacteristic(CHAR_TX);
+        log('Got TX characteristic');
         
-        log('Getting RX characteristic...');
-        rxChar = await service.getCharacteristic(CHAR_UUID_RX);
+        rxChar = await service.getCharacteristic(CHAR_RX);
+        log('Got RX characteristic');
         
-        log('Starting notifications...');
         await txChar.startNotifications();
-        txChar.addEventListener('characteristicvaluechanged', handleTelemetry);
+        txChar.addEventListener('characteristicvaluechanged', handleData);
+        log('Subscribed to notifications');
         
-        document.getElementById('data').textContent = 'Connected to ' + device.name + '!';
-        enableButtons(true);
-        log('Successfully connected!');
-      } catch(err) {
-        log('ERROR: ' + err.toString());
-        alert('Connection failed: ' + err);
+        document.getElementById('telemetry').textContent = 'Connected!';
+        document.getElementById('disconnectBtn').disabled = false;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = false;
+        
+        log('✓ SUCCESS - Ready!');
+      } catch(e) {
+        log('✗ ERROR: ' + e.toString());
       }
-    };
-    
-    document.getElementById('disconnect').onclick = () => {
+    }
+
+    function disconnect() {
       if (device && device.gatt.connected) {
         device.gatt.disconnect();
-        enableButtons(false);
-        document.getElementById('data').textContent = 'Disconnected';
         log('Disconnected');
+        document.getElementById('telemetry').textContent = 'Disconnected';
+        document.getElementById('disconnectBtn').disabled = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = true;
       }
-    };
-    
-    function handleTelemetry(event) {
-      const value = event.target.value;
-      const data = new Uint8Array(value.buffer);
-      document.getElementById('data').textContent = 
-        `Data[0]: ${data[0]}\n` +
-        `Raw: ${Array.from(data).join(', ')}`;
     }
-    
-    document.getElementById('start').onclick = async () => {
-      const cmd = new Uint8Array([0x01]);
-      await rxChar.writeValue(cmd);
-      log('Sent START command');
-    };
-    
-    document.getElementById('stop').onclick = async () => {
-      const cmd = new Uint8Array([0x00]);
-      await rxChar.writeValue(cmd);
-      log('Sent STOP command');
-    };
-    
-    function enableButtons(connected) {
-      document.getElementById('connect').disabled = connected;
-      document.getElementById('disconnect').disabled = !connected;
-      document.getElementById('start').disabled = !connected;
-      document.getElementById('stop').disabled = !connected;
+
+    function handleData(event) {
+      const data = new Uint8Array(event.target.value.buffer);
+      document.getElementById('telemetry').textContent = 
+        'Data[0]: ' + data[0] + '\n' +
+        'Raw: ' + Array.from(data).join(', ');
+    }
+
+    async function sendCommand(cmd) {
+      try {
+        const data = new Uint8Array([cmd]);
+        await rxChar.writeValue(data);
+        log('Sent command: ' + cmd);
+      } catch(e) {
+        log('Send error: ' + e);
+      }
     }
   </script>
 </body>
