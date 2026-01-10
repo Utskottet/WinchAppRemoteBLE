@@ -1,26 +1,323 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Winch Remote</title>
+  <title>Winch Remote Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: monospace; padding: 20px; }
-    button { padding: 10px 20px; margin: 5px; font-size: 16px; }
-    pre { background: #f0f0f0; padding: 10px; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Arial', sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 20px;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    
+    .connection {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    button {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      font-size: 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    
+    button:hover:not(:disabled) {
+      background: #1976D2;
+    }
+    
+    /* STATE - Extra Large */
+    .state-display {
+      text-align: center;
+      margin: 30px 0;
+      padding: 30px;
+      background: #2a2a2a;
+      border-radius: 15px;
+    }
+    
+    .state-label {
+      font-size: 24px;
+      color: #aaa;
+      margin-bottom: 10px;
+    }
+    
+    .state-value {
+      font-size: 120px;
+      font-weight: bold;
+      color: #4CAF50;
+      text-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
+    }
+    
+    /* MEDIUM VALUES */
+    .medium-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    
+    .medium-card {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+    }
+    
+    .medium-label {
+      font-size: 16px;
+      color: #aaa;
+      margin-bottom: 8px;
+    }
+    
+    .medium-value {
+      font-size: 48px;
+      font-weight: bold;
+      color: #fff;
+    }
+    
+    .medium-unit {
+      font-size: 24px;
+      color: #888;
+      margin-left: 5px;
+    }
+    
+    .line-state {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 20px;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    
+    .line-state.ready { background: #4CAF50; color: white; }
+    .line-state.armed { background: #FF9800; color: white; }
+    .line-state.stopped { background: #f44336; color: white; }
+    
+    /* STANDARD VALUES */
+    .standard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .standard-card {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 8px;
+    }
+    
+    .standard-label {
+      font-size: 14px;
+      color: #aaa;
+      margin-bottom: 5px;
+    }
+    
+    .standard-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: #fff;
+    }
+    
+    .standard-unit {
+      font-size: 16px;
+      color: #888;
+      margin-left: 3px;
+    }
+    
+    /* Battery displays */
+    .battery-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    
+    .battery-bar {
+      width: 80px;
+      height: 30px;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .battery-fill {
+      height: 100%;
+      background: linear-gradient(to right, #4CAF50, #8BC34A);
+      transition: width 0.3s ease;
+    }
+    
+    .battery-fill.low {
+      background: linear-gradient(to right, #f44336, #FF5722);
+    }
+    
+    .charging-icon {
+      font-size: 24px;
+      color: #FFC107;
+      animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    /* Future values (grayed out) */
+    .future-card {
+      opacity: 0.5;
+      position: relative;
+    }
+    
+    .future-card::after {
+      content: "Coming Soon";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #FFC107;
+    }
+    
+    .status {
+      text-align: center;
+      padding: 10px;
+      background: #2a2a2a;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 14px;
+      color: #888;
+    }
   </style>
 </head>
 <body>
-  <h1>Winch Remote BLE</h1>
-  <button onclick="connect()">Connect to Winch</button>
-  <button onclick="disconnect()" disabled id="disconnectBtn">Disconnect</button>
-  <br><br>
-  <button onclick="sendCommand(1)" disabled id="startBtn">Start</button>
-  <button onclick="sendCommand(0)" disabled id="stopBtn">Stop</button>
+  <div class="header">
+    <h1>🪂 Winch Remote Control</h1>
+  </div>
   
-  <h3>Telemetry:</h3>
-  <pre id="telemetry">Not connected</pre>
+  <div class="connection">
+    <button onclick="connect()" id="connectBtn">Connect to Winch</button>
+    <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect</button>
+  </div>
   
-  <h3>Debug Log:</h3>
-  <pre id="log"></pre>
+  <!-- STATE (Extra Large) -->
+  <div class="state-display">
+    <div class="state-label">WINCH STATE</div>
+    <div class="state-value" id="state">-</div>
+  </div>
+  
+  <!-- MEDIUM VALUES -->
+  <div class="medium-grid">
+    <div class="medium-card">
+      <div class="medium-label">Line Distance</div>
+      <div>
+        <span class="medium-value" id="lineDistance">0</span>
+        <span class="medium-unit">m</span>
+      </div>
+    </div>
+    
+    <div class="medium-card">
+      <div class="medium-label">Line State</div>
+      <div class="line-state ready" id="lineState">READY</div>
+    </div>
+    
+    <div class="medium-card">
+      <div class="medium-label">Current</div>
+      <div>
+        <span class="medium-value" id="amps">0</span>
+        <span class="medium-unit">A</span>
+      </div>
+    </div>
+    
+    <div class="medium-card">
+      <div class="medium-label">Controller Temp</div>
+      <div>
+        <span class="medium-value" id="temp">0</span>
+        <span class="medium-unit">°C</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- STANDARD VALUES -->
+  <div class="standard-grid">
+    <div class="standard-card">
+      <div class="standard-label">RSSI</div>
+      <div>
+        <span class="standard-value" id="rssi">0</span>
+        <span class="standard-unit">dBm</span>
+      </div>
+    </div>
+    
+    <div class="standard-card">
+      <div class="standard-label">Lost Packages</div>
+      <div>
+        <span class="standard-value" id="lostPackages">0</span>
+      </div>
+    </div>
+    
+    <div class="standard-card">
+      <div class="standard-label">Winch Battery</div>
+      <div class="battery-container">
+        <div class="battery-bar">
+          <div class="battery-fill" id="winchBatteryBar" style="width: 0%"></div>
+        </div>
+        <span class="standard-value" id="winchBattery">0</span>
+        <span class="standard-unit">%</span>
+      </div>
+    </div>
+    
+    <div class="standard-card">
+      <div class="standard-label">Remote Battery</div>
+      <div class="battery-container">
+        <div class="battery-bar">
+          <div class="battery-fill" id="remoteBatteryBar" style="width: 0%"></div>
+        </div>
+        <span class="standard-value" id="remoteBattery">0</span>
+        <span class="standard-unit">%</span>
+        <span class="charging-icon" id="chargingIcon" style="display: none;">⚡</span>
+      </div>
+    </div>
+    
+    <!-- Future values -->
+    <div class="standard-card future-card">
+      <div class="standard-label">AGL</div>
+      <div>
+        <span class="standard-value">0</span>
+        <span class="standard-unit">m</span>
+      </div>
+    </div>
+    
+    <div class="standard-card future-card">
+      <div class="standard-label">Speed</div>
+      <div>
+        <span class="standard-value">0</span>
+        <span class="standard-unit">km/h</span>
+      </div>
+    </div>
+  </div>
+  
+  <div class="status" id="status">Not connected</div>
 
   <script>
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -28,75 +325,93 @@
     const CHAR_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
     
     let device, server, txChar, rxChar;
-
-    function log(msg) {
-      document.getElementById('log').textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
-      console.log(msg);
-    }
+    
+    const lineStateNames = ['READY', 'ARMED', 'STOPPED'];
+    const lineStateClasses = ['ready', 'armed', 'stopped'];
 
     async function connect() {
       try {
-        log('Requesting device...');
+        updateStatus('Scanning for winch...');
+        
         device = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: 'Winch' }],
           optionalServices: [SERVICE_UUID]
         });
         
-        log('Found: ' + device.name);
+        updateStatus('Connecting to ' + device.name + '...');
         
         server = await device.gatt.connect();
-        log('Connected to GATT');
-        
         const service = await server.getPrimaryService(SERVICE_UUID);
-        log('Got service');
-        
         txChar = await service.getCharacteristic(CHAR_TX);
-        log('Got TX characteristic');
-        
         rxChar = await service.getCharacteristic(CHAR_RX);
-        log('Got RX characteristic');
         
         await txChar.startNotifications();
-        txChar.addEventListener('characteristicvaluechanged', handleData);
-        log('Subscribed to notifications');
+        txChar.addEventListener('characteristicvaluechanged', handleTelemetry);
         
-        document.getElementById('telemetry').textContent = 'Connected!';
+        document.getElementById('connectBtn').disabled = true;
         document.getElementById('disconnectBtn').disabled = false;
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('stopBtn').disabled = false;
         
-        log('✓ SUCCESS - Ready!');
+        updateStatus('✓ Connected');
       } catch(e) {
-        log('✗ ERROR: ' + e.toString());
+        updateStatus('✗ Connection failed: ' + e.toString());
+        console.error(e);
       }
     }
 
     function disconnect() {
       if (device && device.gatt.connected) {
         device.gatt.disconnect();
-        log('Disconnected');
-        document.getElementById('telemetry').textContent = 'Disconnected';
+        document.getElementById('connectBtn').disabled = false;
         document.getElementById('disconnectBtn').disabled = true;
-        document.getElementById('startBtn').disabled = true;
-        document.getElementById('stopBtn').disabled = true;
+        updateStatus('Disconnected');
       }
     }
 
-    function handleData(event) {
+    function handleTelemetry(event) {
       const data = new Uint8Array(event.target.value.buffer);
-      document.getElementById('telemetry').textContent = 
-        'Data[0]: ' + data[0] + '\n' +
-        'Raw: ' + Array.from(data).join(', ');
+      
+      // Parse data packet
+      const state = data[0];
+      const lineDistance = (data[1] << 8) | data[2];
+      const lineState = data[3];
+      const amps = (data[4] << 8) | data[5];
+      const temp = data[6];
+      const rssi = data[7] > 127 ? data[7] - 256 : data[7]; // Convert to signed
+      const lostPackages = (data[8] << 8) | data[9];
+      const winchBattery = data[10];
+      const remoteBattery = data[11];
+      const charging = data[12] === 1;
+      
+      // Update UI
+      document.getElementById('state').textContent = state;
+      document.getElementById('lineDistance').textContent = lineDistance;
+      document.getElementById('amps').textContent = amps;
+      document.getElementById('temp').textContent = temp;
+      document.getElementById('rssi').textContent = rssi;
+      document.getElementById('lostPackages').textContent = lostPackages;
+      document.getElementById('winchBattery').textContent = winchBattery;
+      document.getElementById('remoteBattery').textContent = remoteBattery;
+      
+      // Update line state badge
+      const lineStateEl = document.getElementById('lineState');
+      lineStateEl.textContent = lineStateNames[lineState] || 'UNKNOWN';
+      lineStateEl.className = 'line-state ' + (lineStateClasses[lineState] || '');
+      
+      // Update battery bars
+      const winchBar = document.getElementById('winchBatteryBar');
+      winchBar.style.width = winchBattery + '%';
+      winchBar.className = winchBattery < 20 ? 'battery-fill low' : 'battery-fill';
+      
+      const remoteBar = document.getElementById('remoteBatteryBar');
+      remoteBar.style.width = remoteBattery + '%';
+      remoteBar.className = remoteBattery < 20 ? 'battery-fill low' : 'battery-fill';
+      
+      // Show/hide charging icon
+      document.getElementById('chargingIcon').style.display = charging ? 'inline' : 'none';
     }
 
-    async function sendCommand(cmd) {
-      try {
-        const data = new Uint8Array([cmd]);
-        await rxChar.writeValue(data);
-        log('Sent command: ' + cmd);
-      } catch(e) {
-        log('Send error: ' + e);
-      }
+    function updateStatus(msg) {
+      document.getElementById('status').textContent = msg;
     }
   </script>
 </body>
