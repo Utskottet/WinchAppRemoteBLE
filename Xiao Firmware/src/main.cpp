@@ -67,17 +67,18 @@ void processDownButton();
 void processMetricsPacket(const MetricsPacket* m);
 
 // ─── Remote battery (XIAO nRF52840) ──────────────────────────────────────────
-// P0.14 gates the VBAT voltage divider — must pull LOW before reading
-#define VBAT_ENABLE_PIN 14  // P0.14
+// PIN_VBAT  = 32 = P0.31  battery sense (1MΩ:510kΩ divider output)
+// pin 14    = P0.14       enable divider, active LOW
+// pin 23    = P0.23       charge state, LOW = charging
+// pin 22    = P0.22       charge current, LOW=100mA HIGH=50mA
+#define VBAT_ENABLE_PIN  14   // P0.14, OUTPUT LOW to connect divider
+#define CHG_STATE_PIN    23   // P0.23, INPUT, LOW = charging
+#define CHG_CURR_PIN     22   // P0.22, OUTPUT, LOW=100mA
 
 float readRemoteBatteryVoltage() {
-  pinMode(VBAT_ENABLE_PIN, OUTPUT);
-  digitalWrite(VBAT_ENABLE_PIN, LOW);   // connect divider
-  delay(1);
-  int raw = analogRead(PIN_VBAT);       // P0.31, 12-bit, 3.3V ref, 2:1 divider
-  float v = raw * 3.3f / 4095.0f * 2.0f;
-  digitalWrite(VBAT_ENABLE_PIN, HIGH);  // disconnect divider (save power)
-  return v;
+  // 10-bit ADC, 3.3V ref, 1MΩ:510kΩ divider
+  int raw = analogRead(PIN_VBAT);
+  return raw * 3.3f / 1023.0f * (1510.0f / 510.0f);
 }
 
 int voltageToPercent(float v) {
@@ -274,6 +275,13 @@ void setup() {
   delay(200);
   DBG("=== XIAO nRF52840 Winch Remote ===");
 
+  // Battery divider enable (active LOW), charge current and sense
+  pinMode(VBAT_ENABLE_PIN, OUTPUT);
+  digitalWrite(VBAT_ENABLE_PIN, LOW);   // connect divider permanently
+  pinMode(CHG_CURR_PIN, OUTPUT);
+  digitalWrite(CHG_CURR_PIN, LOW);      // 100mA charging
+  pinMode(CHG_STATE_PIN, INPUT);
+
   // Buttons
   pinMode(BTN_UP_PIN, INPUT_PULLUP);
   pinMode(BTN_DN_PIN, INPUT_PULLUP);
@@ -347,9 +355,12 @@ void loop() {
   // Remote battery update every 10 s
   static uint32_t lastBatUpdate = 0;
   if (now - lastBatUpdate >= 10000) {
-    float v   = readRemoteBatteryVoltage();
-    int   pct = voltageToPercent(v);
+    float v      = readRemoteBatteryVoltage();
+    int   pct    = voltageToPercent(v);
+    bool  chrg   = (digitalRead(CHG_STATE_PIN) == LOW);
+    DBGF("[BAT] %.2fV  %d%%  charging:%d", v, pct, chrg);
     bleInterface.setBatteryLevel(v, pct);
+    bleInterface.setRemoteCharging(chrg);
     lastBatUpdate = now;
   }
 
