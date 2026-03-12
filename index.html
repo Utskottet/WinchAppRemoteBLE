@@ -379,22 +379,19 @@
           </div>
         </div>
         
-        <!-- Future values -->
-        <div class="standard-card future-card">
-          <div class="future-label">SOON</div>
-          <div class="standard-label">AGL</div>
+        <div class="standard-card">
+          <div class="standard-label">SNR</div>
           <div>
-            <span class="standard-value">---</span>
-            <span class="standard-unit">m</span>
+            <span class="standard-value" id="snr">0</span>
+            <span class="standard-unit">dB</span>
           </div>
         </div>
-        
-        <div class="standard-card future-card">
-          <div class="future-label">SOON</div>
-          <div class="standard-label">Speed</div>
+
+        <div class="standard-card">
+          <div class="standard-label">Winch Voltage</div>
           <div>
-            <span class="standard-value">---</span>
-            <span class="standard-unit">km/h</span>
+            <span class="standard-value" id="vescVoltage">0</span>
+            <span class="standard-unit">V</span>
           </div>
         </div>
       </div>
@@ -470,39 +467,43 @@
 
     function handleTelemetry(event) {
       const data = new Uint8Array(event.target.value.buffer);
-      
-      const state = data[0];
+
+      const state        = data[0];
       const lineDistance = (data[1] << 8) | data[2];
-      const lineState = data[3];
-      const amps = (data[4] << 8) | data[5];
-      const temp = data[6];
-      const rssi = data[7] > 127 ? data[7] - 256 : data[7];
-      const lostPackages = (data[8] << 8) | data[9];
+      const lineState    = data[3];
+      const amps_x10     = (data[4] << 8) | data[5];  // divide by 10 for Amps
+      const temp         = data[6];
+      const rssi         = data[7] > 127 ? data[7] - 256 : data[7];
+      const lostPct      = data[9];                    // packet loss %
       const winchBattery = data[10];
       const remoteBattery = data[11];
-      const charging = data[12] === 1;
-      
-      document.getElementById('state').textContent = state;
+      const charging     = data[12] === 1;
+      const snr          = data[13] > 127 ? data[13] - 256 : data[13];
+      const vescVolt_dV  = (data[14] << 8) | data[15]; // divide by 10 for Volts
+
+      document.getElementById('state').textContent        = state;
       document.getElementById('lineDistance').textContent = lineDistance;
-      document.getElementById('amps').textContent = amps;
-      document.getElementById('temp').textContent = temp;
-      document.getElementById('rssi').textContent = rssi;
-      document.getElementById('lostPackages').textContent = lostPackages;
+      document.getElementById('amps').textContent         = (amps_x10 / 10).toFixed(1);
+      document.getElementById('temp').textContent         = temp > 0 ? temp : 'N/A';
+      document.getElementById('rssi').textContent         = rssi;
+      document.getElementById('lostPackages').textContent = lostPct + '%';
       document.getElementById('winchBattery').textContent = winchBattery;
       document.getElementById('remoteBattery').textContent = remoteBattery;
-      
+      document.getElementById('snr').textContent          = snr;
+      document.getElementById('vescVoltage').textContent  = (vescVolt_dV / 10).toFixed(1);
+
       const lineStateEl = document.getElementById('lineState');
       lineStateEl.textContent = lineStateNames[lineState] || 'UNKNOWN';
-      lineStateEl.className = 'line-state ' + (lineStateClasses[lineState] || '');
-      
+      lineStateEl.className   = 'line-state ' + (lineStateClasses[lineState] || '');
+
       const winchBar = document.getElementById('winchBatteryBar');
       winchBar.style.width = winchBattery + '%';
-      winchBar.className = winchBattery < 20 ? 'battery-fill low' : 'battery-fill';
-      
+      winchBar.className   = winchBattery < 20 ? 'battery-fill low' : 'battery-fill';
+
       const remoteBar = document.getElementById('remoteBatteryBar');
       remoteBar.style.width = remoteBattery + '%';
-      remoteBar.className = remoteBattery < 20 ? 'battery-fill low' : 'battery-fill';
-      
+      remoteBar.className   = remoteBattery < 20 ? 'battery-fill low' : 'battery-fill';
+
       document.getElementById('chargingIcon').style.display = charging ? 'inline' : 'none';
     }
 
