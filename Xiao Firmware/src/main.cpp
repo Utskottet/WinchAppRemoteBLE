@@ -314,6 +314,7 @@ void setup() {
     lora.setOutputPower(LORA_OUTPUT_POWER_DBM);
     lora.setCurrentLimit(LORA_CURRENT_LIMIT_MA);
     lora.setDio2AsRfSwitch(true);
+    lora.setRfSwitchPins(LORA_RXEN_PIN, RADIOLIB_NC);  // D5 HIGH=RX, LOW=TX
     lora.setDio1Action(dio1ISR);
     lora.startReceive();
     loraReady = true;
@@ -328,6 +329,7 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
+  buzzer.setStateIndicator(confirmedState);
   btnUp.loop();
   processDownButton();
   buzzer.update();

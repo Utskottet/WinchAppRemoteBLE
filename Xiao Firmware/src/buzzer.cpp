@@ -10,16 +10,16 @@
 BuzzerController buzzer;
 
 const uint16_t BuzzerController::stateBaseFrequency[7] = {
-  1000,  // State 0
-  1200,  // State 1
-  1400,  // State 2
-  1600,  // State 3
-  1800,  // State 4
-  2000,  // State 5
-  2200   // State 6
+  2000,  // State 0
+  2400,  // State 1
+  2700,  // State 2
+  3000,  // State 3
+  3200,  // State 4 (resonant)
+  3400,  // State 5
+  3600   // State 6
 };
 
-const uint16_t BUTTON_BEEP_FREQ     = 2000;
+const uint16_t BUTTON_BEEP_FREQ     = 3200;
 const uint16_t BUTTON_BEEP_DURATION = 20;
 const uint16_t SWEEP_DURATION       = 150;
 const uint16_t TONE_END_DELAY       = 50;
@@ -34,11 +34,16 @@ BuzzerController::BuzzerController() :
   sweepCurrentFreq(0),
   sweepStep(0),
   sweepStepTimeMs(0),
-  sweepLastStepTime(0)
+  sweepLastStepTime(0),
+  _seqState(0),
+  _seqBeeping(false)
 {}
 
 void BuzzerController::begin() {
   pinMode(BUZZER_PIN, OUTPUT);
+  // Enable high drive mode (~50mA vs default ~10mA) for more volume
+  NRF_P1->PIN_CNF[12] &= ~(7UL << 8);
+  NRF_P1->PIN_CNF[12] |= (3UL << 8);
   noTone(BUZZER_PIN);
 }
 
@@ -89,8 +94,39 @@ void BuzzerController::playJumpToZero() {
   startTone(3500);
 }
 
+void BuzzerController::setStateIndicator(uint8_t state) {
+  _seqState = (state > 6) ? 6 : state;
+  if (_seqState == 0) {
+    _seqBeeping = false;
+    if (buzzerState == BUZZER_IDLE) stopTone();
+  }
+}
+
 void BuzzerController::update() {
   uint32_t now = millis();
+
+  // ─── State indicator sequencer ────────────────────────────────────────────
+  // 6 equal slots per 1000ms; slot=166ms, beep=120ms.
+  // Slots 0..(state-1) active; rest silence. One-shot sounds override.
+  if (_seqState > 0) {
+    const uint32_t SLOT_MS = 166;
+    const uint32_t BEEP_MS = 120;
+    uint32_t posInCycle = now % 1000;
+    uint8_t  slot       = (uint8_t)(posInCycle / SLOT_MS);
+    if (slot > 5) slot  = 5;
+    uint32_t posInSlot  = posInCycle % SLOT_MS;
+    bool shouldBeep = (slot < _seqState) && (posInSlot < BEEP_MS);
+
+    if (buzzerState == BUZZER_IDLE) {
+      if (shouldBeep != _seqBeeping) {
+        if (shouldBeep) startTone(stateBaseFrequency[_seqState]);
+        else            stopTone();
+        _seqBeeping = shouldBeep;
+      }
+    } else {
+      _seqBeeping = false;  // one-shot playing — restart cleanly when done
+    }
+  }
 
   switch (buzzerState) {
     case BUZZER_IDLE:

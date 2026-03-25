@@ -28,6 +28,7 @@ public:
   void playStateChange(uint8_t fromState, uint8_t toState);
   void playJumpToOne();
   void playJumpToZero();
+  void setStateIndicator(uint8_t state);
 
   // Call regularly in main loop
   void update();
@@ -51,6 +52,9 @@ private:
   int16_t  sweepStep;
   uint8_t  sweepStepTimeMs;
   uint32_t sweepLastStepTime;
+
+  uint8_t  _seqState;
+  bool     _seqBeeping;
 
   static const uint16_t stateBaseFrequency[7];
 };

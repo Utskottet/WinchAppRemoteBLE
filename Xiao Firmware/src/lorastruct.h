@@ -7,7 +7,7 @@
 #define LORA_SPREADING_FACTOR   9
 #define LORA_CODING_RATE        6          // 4/6
 #define LORA_OUTPUT_POWER_DBM   22
-#define LORA_CURRENT_LIMIT_MA   240.0f  // safe upper limit
+#define LORA_CURRENT_LIMIT_MA   140.0f  // RadioLib max; SX1262 draws ~118mA at 22dBm
 
 /*────────── application timing ───────────*/
 #define CMD_MAX_RETRIES         3
