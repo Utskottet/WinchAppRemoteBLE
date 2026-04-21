@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Winch Remote v1.4</title>
+  <title>Winch Remote v1.5</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -80,6 +80,18 @@
       font-size: 10px;
       color: #888;
     }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #555;
+      margin-right: 3px;
+    }
+
+    .status-dot.connected    { background: #4CAF50; }
+    .status-dot.disconnected { background: #f44336; }
     
     /* Main content area - responsive */
     .content {
@@ -290,13 +302,12 @@
 <body>
   <div class="main-content">
     <div class="header">
-      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.4</span></h1>
+      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.5</span></h1>
       <div class="controls">
-        <button onclick="connectAll()" id="connectAllBtn">Connect All</button>
-        <button onclick="disconnect(); disconnectXCT();" id="disconnectAllBtn" disabled>Disconnect All</button>
+        <span class="status-dot" id="winchDot"></span><span class="status" id="status">Winch</span>
+        <span class="status-dot" id="xctDot"></span><span class="status" id="xctStatus">XCT</span>
+        <button onclick="connectAll()" id="connectBtn" style="display:none">Connect</button>
         <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
-        <span class="status" id="status">Winch: -</span>
-        <span class="status" id="xctStatus">XCT: -</span>
         <span class="status" id="xctRaw"></span>
       </div>
     </div>
@@ -439,76 +450,71 @@
     const lineStateClasses = ['ready', 'armed', 'stopped'];
 
     async function connectAll() {
-      document.getElementById('connectAllBtn').disabled = true;
+      document.getElementById('connectBtn').style.display = 'none';
       await connect();
       await connectXCT();
-      document.getElementById('disconnectAllBtn').disabled = false;
     }
 
     async function connectToDevice(d) {
       device = d;
-      updateStatus('Winch: connecting...');
+      updateStatus(false, 'Winch...');
       server = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE_UUID);
       txChar = await service.getCharacteristic(CHAR_TX);
       rxChar = await service.getCharacteristic(CHAR_RX);
       await txChar.startNotifications();
       txChar.addEventListener('characteristicvaluechanged', handleTelemetry);
-      updateStatus('Winch: connected');
+      updateStatus(true);
     }
 
     async function connect() {
       try {
-        updateStatus('Winch: scanning...');
+        updateStatus(false, 'Winch...');
         device = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: 'Winch' }],
           optionalServices: [SERVICE_UUID]
         });
         await connectToDevice(device);
       } catch(e) {
-        updateStatus('Winch: failed');
+        updateStatus(false);
         console.error(e);
       }
     }
 
     function disconnect() {
       if (device && device.gatt.connected) device.gatt.disconnect();
-      updateStatus('Winch: -');
-      document.getElementById('connectAllBtn').disabled = false;
-      document.getElementById('disconnectAllBtn').disabled = true;
+      updateStatus(false);
     }
 
     // ── XC Tracer connect / disconnect ───────────────────────────────────────
     async function connectToXCT(d) {
       xctDevice = d;
-      updateXCTStatus('XCT: connecting...');
+      updateXCTStatus(false, 'XCT...');
       xctServer = await xctDevice.gatt.connect();
       const service = await xctServer.getPrimaryService(XCT_SERVICE_UUID);
       xctChar = await service.getCharacteristic(XCT_CHAR_UUID);
       await xctChar.startNotifications();
       xctChar.addEventListener('characteristicvaluechanged', handleXCTData);
-      updateXCTStatus('XCT: connected');
+      updateXCTStatus(true);
     }
 
     async function connectXCT() {
       try {
-        updateXCTStatus('XCT: scanning...');
+        updateXCTStatus(false, 'XCT...');
         xctDevice = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: 'XCT' }],
           optionalServices: [XCT_SERVICE_UUID]
         });
         await connectToXCT(xctDevice);
       } catch(e) {
-        updateXCTStatus('XCT: failed');
+        updateXCTStatus(false);
         console.error(e);
       }
     }
 
     function disconnectXCT() {
       if (xctDevice && xctDevice.gatt.connected) xctDevice.gatt.disconnect();
-      updateXCTStatus('XCT: -');
-      document.getElementById('connectAllBtn').disabled = false;
-      document.getElementById('disconnectAllBtn').disabled = true;
+      updateXCTStatus(false);
     }
 
     // ── XC Tracer data handler ────────────────────────────────────────────────
@@ -625,24 +631,44 @@
       document.getElementById('chargingIcon').style.display = charging ? 'inline' : 'none';
     }
 
-    function updateStatus(msg) {
-      document.getElementById('status').textContent = msg;
+    let winchConnected = false;
+    let xctConnected   = false;
+
+    function updateStatus(connected, msg) {
+      winchConnected = connected;
+      document.getElementById('status').textContent = msg || (connected ? 'Winch' : 'Winch');
+      document.getElementById('winchDot').className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+      updateConnectButton();
+    }
+
+    function updateXCTStatus(connected, msg) {
+      xctConnected = connected;
+      document.getElementById('xctStatus').textContent = msg || 'XCT';
+      document.getElementById('xctDot').className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+      updateConnectButton();
+    }
+
+    function updateConnectButton() {
+      document.getElementById('connectBtn').style.display =
+        (!winchConnected || !xctConnected) ? 'inline-block' : 'none';
     }
 
     // ── Auto-reconnect on page load (no scan dialog for known devices) ────────
     window.addEventListener('load', async () => {
-      if (!navigator.bluetooth?.getDevices) return;
+      if (!navigator.bluetooth?.getDevices) {
+        // getDevices not supported — show Connect button immediately
+        updateConnectButton();
+        return;
+      }
       try {
         const devices = await navigator.bluetooth.getDevices();
-        let winchDev = devices.find(d => d.name?.startsWith('Winch'));
-        let xctDev   = devices.find(d => d.name?.startsWith('XCT'));
-        if (winchDev || xctDev) {
-          document.getElementById('connectAllBtn').disabled = true;
-          document.getElementById('disconnectAllBtn').disabled = false;
-          if (winchDev) connectToDevice(winchDev).catch(() => updateStatus('Winch: -'));
-          if (xctDev)   connectToXCT(xctDev).catch(() => updateXCTStatus('XCT: -'));
-        }
-      } catch(e) { /* getDevices not supported */ }
+        const winchDev = devices.find(d => d.name?.startsWith('Winch'));
+        const xctDev   = devices.find(d => d.name?.startsWith('XCT'));
+        if (winchDev) connectToDevice(winchDev).catch(() => updateStatus(false));
+        if (xctDev)   connectToXCT(xctDev).catch(() => updateXCTStatus(false));
+      } catch(e) { /* ignore */ }
+      // Show Connect button after auto-connect attempt finishes
+      setTimeout(updateConnectButton, 3000);
     });
   </script>
 </body>
