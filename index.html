@@ -549,11 +549,14 @@
         }
       }
 
-      if (fields[0] === '$LXWP0') {
-        // field[3] = barometric altitude in metres
-        const alt = parseFloat(fields[3]);
-        if (!isNaN(alt))
-          document.getElementById('xctAlt').textContent = Math.round(alt);
+      if (fields[0] === '$GPGGA' || fields[0] === '$GNGGA') {
+        // field[6] = fix quality (0=no fix), field[9] = altitude MSL in metres
+        const fix = parseInt(fields[6]);
+        if (fix > 0) {
+          const alt = parseFloat(fields[9]);
+          if (!isNaN(alt))
+            document.getElementById('xctAlt').textContent = Math.round(alt);
+        }
       }
     }
 
