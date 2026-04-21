@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Winch Remote v1.1</title>
+  <title>Winch Remote v1.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -290,7 +290,7 @@
 <body>
   <div class="main-content">
     <div class="header">
-      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.1</span></h1>
+      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.2</span></h1>
       <div class="controls">
         <button onclick="connect()" id="connectBtn">Connect Winch</button>
         <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect Winch</button>
@@ -352,7 +352,7 @@
         </div>
 
         <div class="medium-card">
-          <div class="medium-label">ALT</div>
+          <div class="medium-label">Baro Alt</div>
           <div>
             <span class="medium-value" id="xctAlt">-</span>
             <span class="medium-unit">m</span>
@@ -549,14 +549,11 @@
         }
       }
 
-      if (fields[0] === '$GPGGA' || fields[0] === '$GNGGA') {
-        // field[6] = fix quality (0=no fix), field[9] = altitude MSL in metres
-        const fix = parseInt(fields[6]);
-        if (fix > 0) {
-          const alt = parseFloat(fields[9]);
-          if (!isNaN(alt))
-            document.getElementById('xctAlt').textContent = Math.round(alt);
-        }
+      if (fields[0] === '$LXWP0') {
+        // field[3] = barometric altitude in metres, updates ~3x/sec even without GPS fix
+        const alt = parseFloat(fields[3]);
+        if (!isNaN(alt))
+          document.getElementById('xctAlt').textContent = Math.round(alt);
       }
     }
 
