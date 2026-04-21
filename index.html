@@ -526,7 +526,7 @@
         xctBuffer = xctBuffer.slice(nl + 1);
         if (line) {
           xctLog(line);
-          parseLXWP0(line);
+          parseNMEA(line);
         }
       }
       // No newline found yet — log raw chunk so we can see what arrives
@@ -535,17 +535,26 @@
       }
     }
 
-    // ── LXWP0 parser ─────────────────────────────────────────────────────────
-    // $LXWP0,logger_stored,airspeed_kmh,baro_alt_m,vario_ms,...*checksum
-    function parseLXWP0(line) {
-      if (!line.startsWith('$LXWP0')) return;
+    // ── NMEA sentence dispatcher ──────────────────────────────────────────────
+    function parseNMEA(line) {
       const star = line.indexOf('*');
       const fields = (star !== -1 ? line.slice(0, star) : line).split(',');
-      if (fields.length < 4) return;
-      const speed = parseFloat(fields[2]);
-      const alt   = parseFloat(fields[3]);
-      if (!isNaN(speed)) document.getElementById('xctSpeed').textContent = speed.toFixed(1);
-      if (!isNaN(alt))   document.getElementById('xctAlt').textContent   = Math.round(alt);
+
+      if (fields[0] === '$GPRMC' || fields[0] === '$GNRMC') {
+        // field[2] = status A=valid, field[7] = speed over ground in knots
+        if (fields[2] === 'A') {
+          const knots = parseFloat(fields[7]);
+          if (!isNaN(knots))
+            document.getElementById('xctSpeed').textContent = (knots * 1.852).toFixed(1);
+        }
+      }
+
+      if (fields[0] === '$LXWP0') {
+        // field[3] = barometric altitude in metres
+        const alt = parseFloat(fields[3]);
+        if (!isNaN(alt))
+          document.getElementById('xctAlt').textContent = Math.round(alt);
+      }
     }
 
     function updateXCTStatus(msg) {
