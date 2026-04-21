@@ -299,6 +299,7 @@
         <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
         <span class="status" id="status">Winch: not connected</span>
         <span class="status" id="xctStatus">XCT: not connected</span>
+        <span class="status" id="xctRaw" style="color:#FFC107;max-width:300px;overflow:hidden;white-space:nowrap;"></span>
       </div>
     </div>
     
@@ -509,11 +510,15 @@
     // ── XC Tracer data handler ────────────────────────────────────────────────
     function handleXCTData(event) {
       xctBuffer += new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
+      document.getElementById('xctRaw').textContent = 'raw: ' + xctBuffer.slice(-60);
       let nl;
       while ((nl = xctBuffer.indexOf('\n')) !== -1) {
         const line = xctBuffer.slice(0, nl).trim();
         xctBuffer = xctBuffer.slice(nl + 1);
-        if (line) parseLXWP0(line);
+        if (line) {
+          document.getElementById('xctRaw').textContent = line;
+          parseLXWP0(line);
+        }
       }
     }
 
