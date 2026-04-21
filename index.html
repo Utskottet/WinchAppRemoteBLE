@@ -106,6 +106,7 @@
       
       .middle-column {
         grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: unset !important;
       }
       
       .state-value {
@@ -146,11 +147,11 @@
       text-shadow: 0 0 20px rgba(76, 175, 80, 0.3);
     }
     
-    /* Middle column - Medium values in 2x2 grid */
+    /* Middle column - Medium values in 2x3 grid */
     .middle-column {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr 1fr;
+      grid-template-rows: 1fr 1fr 1fr;
       gap: 8px;
     }
     
@@ -291,10 +292,13 @@
     <div class="header">
       <h1>🪂 Winch Remote</h1>
       <div class="controls">
-        <button onclick="connect()" id="connectBtn">Connect</button>
-        <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect</button>
+        <button onclick="connect()" id="connectBtn">Connect Winch</button>
+        <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect Winch</button>
+        <button onclick="connectXCT()" id="xctConnectBtn">Connect XCT</button>
+        <button onclick="disconnectXCT()" id="xctDisconnectBtn" disabled>Disconnect XCT</button>
         <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
-        <span class="status" id="status">Not connected</span>
+        <span class="status" id="status">Winch: not connected</span>
+        <span class="status" id="xctStatus">XCT: not connected</span>
       </div>
     </div>
     
@@ -335,6 +339,22 @@
           <div>
             <span class="medium-value" id="temp">0</span>
             <span class="medium-unit">°C</span>
+          </div>
+        </div>
+
+        <div class="medium-card">
+          <div class="medium-label">Speed</div>
+          <div>
+            <span class="medium-value" id="xctSpeed">-</span>
+            <span class="medium-unit">km/h</span>
+          </div>
+        </div>
+
+        <div class="medium-card">
+          <div class="medium-label">ALT</div>
+          <div>
+            <span class="medium-value" id="xctAlt">-</span>
+            <span class="medium-unit">m</span>
           </div>
         </div>
       </div>
@@ -399,11 +419,19 @@
   </div>
 
   <script>
+    // ── Winch BLE (NUS) ──────────────────────────────────────────────────────
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const CHAR_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
     const CHAR_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-    
+
     let device, server, txChar, rxChar;
+
+    // ── XC Tracer BLE (0xFFE0 / 0xFFE1) ─────────────────────────────────────
+    const XCT_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+    const XCT_CHAR_UUID    = '0000ffe1-0000-1000-8000-00805f9b34fb';
+
+    let xctDevice, xctServer, xctChar;
+    let xctBuffer = '';
     
     const lineStateNames = ['READY', 'ARMED', 'STOPPED'];
     const lineStateClasses = ['ready', 'armed', 'stopped'];
@@ -429,10 +457,10 @@
         
         document.getElementById('connectBtn').disabled = true;
         document.getElementById('disconnectBtn').disabled = false;
-        
-        updateStatus('✓ Connected');
+
+        updateStatus('Winch: connected');
       } catch(e) {
-        updateStatus('✗ Failed');
+        updateStatus('Winch: failed');
         console.error(e);
       }
     }
@@ -442,8 +470,68 @@
         device.gatt.disconnect();
         document.getElementById('connectBtn').disabled = false;
         document.getElementById('disconnectBtn').disabled = true;
-        updateStatus('Disconnected');
+        updateStatus('Winch: disconnected');
       }
+    }
+
+    // ── XC Tracer connect / disconnect ───────────────────────────────────────
+    async function connectXCT() {
+      try {
+        updateXCTStatus('Scanning...');
+        xctDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'XCT' }],
+          optionalServices: [XCT_SERVICE_UUID]
+        });
+        updateXCTStatus('Connecting...');
+        xctServer = await xctDevice.gatt.connect();
+        const service = await xctServer.getPrimaryService(XCT_SERVICE_UUID);
+        xctChar = await service.getCharacteristic(XCT_CHAR_UUID);
+        await xctChar.startNotifications();
+        xctChar.addEventListener('characteristicvaluechanged', handleXCTData);
+        document.getElementById('xctConnectBtn').disabled = true;
+        document.getElementById('xctDisconnectBtn').disabled = false;
+        updateXCTStatus('XCT: connected');
+      } catch(e) {
+        updateXCTStatus('XCT: failed');
+        console.error(e);
+      }
+    }
+
+    function disconnectXCT() {
+      if (xctDevice && xctDevice.gatt.connected) {
+        xctDevice.gatt.disconnect();
+        document.getElementById('xctConnectBtn').disabled = false;
+        document.getElementById('xctDisconnectBtn').disabled = true;
+        updateXCTStatus('XCT: disconnected');
+      }
+    }
+
+    // ── XC Tracer data handler ────────────────────────────────────────────────
+    function handleXCTData(event) {
+      xctBuffer += new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
+      let nl;
+      while ((nl = xctBuffer.indexOf('\n')) !== -1) {
+        const line = xctBuffer.slice(0, nl).trim();
+        xctBuffer = xctBuffer.slice(nl + 1);
+        if (line) parseLXWP0(line);
+      }
+    }
+
+    // ── LXWP0 parser ─────────────────────────────────────────────────────────
+    // $LXWP0,logger_stored,airspeed_kmh,baro_alt_m,vario_ms,...*checksum
+    function parseLXWP0(line) {
+      if (!line.startsWith('$LXWP0')) return;
+      const star = line.indexOf('*');
+      const fields = (star !== -1 ? line.slice(0, star) : line).split(',');
+      if (fields.length < 4) return;
+      const speed = parseFloat(fields[2]);
+      const alt   = parseFloat(fields[3]);
+      if (!isNaN(speed)) document.getElementById('xctSpeed').textContent = speed.toFixed(1);
+      if (!isNaN(alt))   document.getElementById('xctAlt').textContent   = Math.round(alt);
+    }
+
+    function updateXCTStatus(msg) {
+      document.getElementById('xctStatus').textContent = msg;
     }
 
     function toggleFullscreen() {
