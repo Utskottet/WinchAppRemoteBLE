@@ -299,7 +299,7 @@
         <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
         <span class="status" id="status">Winch: not connected</span>
         <span class="status" id="xctStatus">XCT: not connected</span>
-        <span class="status" id="xctRaw" style="color:#FFC107;max-width:300px;overflow:hidden;white-space:nowrap;"></span>
+        <span class="status" id="xctRaw"></span>
       </div>
     </div>
     
@@ -419,6 +419,9 @@
     </div>
   </div>
 
+  <!-- XCT debug log — remove once protocol is confirmed -->
+  <div id="xctDebug" style="position:fixed;bottom:0;left:0;right:0;background:#111;color:#FFC107;font-size:11px;font-family:monospace;height:80px;overflow-y:auto;padding:4px;z-index:999;"></div>
+
   <script>
     // ── Winch BLE (NUS) ──────────────────────────────────────────────────────
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -508,17 +511,27 @@
     }
 
     // ── XC Tracer data handler ────────────────────────────────────────────────
+    function xctLog(msg) {
+      const d = document.getElementById('xctDebug');
+      d.innerHTML += msg + '<br>';
+      d.scrollTop = d.scrollHeight;
+    }
+
     function handleXCTData(event) {
-      xctBuffer += new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
-      document.getElementById('xctRaw').textContent = 'raw: ' + xctBuffer.slice(-60);
+      const chunk = new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
+      xctBuffer += chunk;
       let nl;
       while ((nl = xctBuffer.indexOf('\n')) !== -1) {
         const line = xctBuffer.slice(0, nl).trim();
         xctBuffer = xctBuffer.slice(nl + 1);
         if (line) {
-          document.getElementById('xctRaw').textContent = line;
+          xctLog(line);
           parseLXWP0(line);
         }
+      }
+      // No newline found yet — log raw chunk so we can see what arrives
+      if (xctBuffer.length > 0 && xctBuffer.length < 200) {
+        xctLog('buf: ' + xctBuffer);
       }
     }
 
