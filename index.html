@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Winch Remote v1.5</title>
+  <title>Winch Remote v1.6</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -71,10 +71,15 @@
     .fullscreen-btn {
       background: #FF9800 !important;
     }
-    
+
     .fullscreen-btn:hover {
       background: #F57C00 !important;
     }
+
+    .log-btn          { background: #4CAF50 !important; }
+    .log-btn:hover    { background: #388E3C !important; }
+    .log-btn.active   { background: #f44336 !important; }
+    .log-btn.active:hover { background: #c62828 !important; }
     
     .status {
       font-size: 10px;
@@ -302,11 +307,12 @@
 <body>
   <div class="main-content">
     <div class="header">
-      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.5</span></h1>
+      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.6</span></h1>
       <div class="controls">
         <span class="status-dot" id="winchDot"></span><span class="status" id="status">Winch</span>
         <span class="status-dot" id="xctDot"></span><span class="status" id="xctStatus">XCT</span>
         <button onclick="connectAll()" id="connectBtn" style="display:none">Connect</button>
+        <button onclick="toggleLog()" id="logBtn" class="log-btn">Start Log</button>
         <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
         <span class="status" id="xctRaw"></span>
       </div>
@@ -439,6 +445,64 @@
 
     let device, server, txChar, rxChar;
 
+    // ── Logging ───────────────────────────────────────────────────────────────
+    const LOG_HEADER = 'timestamp,state,line_distance_m,line_state,amps_A,temp_C,' +
+                       'rssi_dBm,snr_dB,lost_pct,winch_bat_pct,remote_bat_pct,' +
+                       'winch_voltage_V,speed_kmh,gps_alt_m';
+
+    const cv = {  // current values — updated by both telemetry sources
+      state:'-', lineDistance:'-', lineState:'-', amps:'-', temp:'-',
+      rssi:'-', snr:'-', lostPct:'-', winchBat:'-', remoteBat:'-',
+      vescVolt:'-', speed:'-', gpsAlt:'-'
+    };
+
+    let logActive = false;
+    let logRows   = [];
+    let logTimer  = null;
+
+    function toggleLog() {
+      logActive ? stopLog() : startLog();
+    }
+
+    function startLog() {
+      logActive = true;
+      logRows   = [];
+      logTimer  = setInterval(writeLogRow, 1000);
+      const btn = document.getElementById('logBtn');
+      btn.textContent = 'Stop Log';
+      btn.classList.add('active');
+    }
+
+    function stopLog() {
+      logActive = false;
+      clearInterval(logTimer);
+      const btn = document.getElementById('logBtn');
+      btn.textContent = 'Start Log';
+      btn.classList.remove('active');
+      downloadCSV();
+    }
+
+    function writeLogRow() {
+      const ts = new Date().toISOString();
+      logRows.push([ts, cv.state, cv.lineDistance, cv.lineState, cv.amps,
+                    cv.temp, cv.rssi, cv.snr, cv.lostPct, cv.winchBat,
+                    cv.remoteBat, cv.vescVolt, cv.speed, cv.gpsAlt].join(','));
+    }
+
+    function downloadCSV() {
+      if (!logRows.length) return;
+      const csv  = LOG_HEADER + '\n' + logRows.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'winch_' + new Date().toISOString().slice(0,19).replace(/[T:]/g,'-') + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
     // ── XC Tracer BLE (0xFFE0 / 0xFFE1) ─────────────────────────────────────
     const XCT_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
     const XCT_CHAR_UUID    = '0000ffe1-0000-1000-8000-00805f9b34fb';
@@ -548,20 +612,22 @@
       const fields = (star !== -1 ? line.slice(0, star) : line).split(',');
 
       if (fields[0] === '$GPRMC' || fields[0] === '$GNRMC') {
-        // field[2] = status A=valid, field[7] = speed over ground in knots
         if (fields[2] === 'A') {
           const knots = parseFloat(fields[7]);
-          if (!isNaN(knots))
-            document.getElementById('xctSpeed').textContent = (knots * 1.852).toFixed(1);
+          if (!isNaN(knots)) {
+            cv.speed = (knots * 1.852).toFixed(1);
+            document.getElementById('xctSpeed').textContent = cv.speed;
+          }
         }
       }
 
       if (fields[0] === '$GPGGA' || fields[0] === '$GNGGA') {
-        // field[6] = fix quality (0=no fix), field[9] = GPS altitude MSL in metres
         if (parseInt(fields[6]) > 0) {
           const alt = parseFloat(fields[9]);
-          if (!isNaN(alt))
-            document.getElementById('xctAlt').textContent = Math.round(alt);
+          if (!isNaN(alt)) {
+            cv.gpsAlt = Math.round(alt);
+            document.getElementById('xctAlt').textContent = cv.gpsAlt;
+          }
         }
       }
     }
@@ -605,16 +671,32 @@
       const snr          = data[13] > 127 ? data[13] - 256 : data[13];
       const vescVolt_dV  = (data[14] << 8) | data[15]; // divide by 10 for Volts
 
-      document.getElementById('state').textContent        = state;
-      document.getElementById('lineDistance').textContent = lineDistance;
-      document.getElementById('amps').textContent         = (amps_x10 / 10).toFixed(1);
-      document.getElementById('temp').textContent         = temp > 0 ? temp : 'N/A';
-      document.getElementById('rssi').textContent         = rssi;
-      document.getElementById('lostPackages').textContent = lostPct + '%';
-      document.getElementById('winchBattery').textContent = winchBattery;
+      const ampsVal   = (amps_x10 / 10).toFixed(1);
+      const voltVal   = (vescVolt_dV / 10).toFixed(1);
+      const lineNames = ['READY','ARMED','STOPPED'];
+
+      document.getElementById('state').textContent         = state;
+      document.getElementById('lineDistance').textContent  = lineDistance;
+      document.getElementById('amps').textContent          = ampsVal;
+      document.getElementById('temp').textContent          = temp > 0 ? temp : 'N/A';
+      document.getElementById('rssi').textContent          = rssi;
+      document.getElementById('lostPackages').textContent  = lostPct + '%';
+      document.getElementById('winchBattery').textContent  = winchBattery;
       document.getElementById('remoteBattery').textContent = remoteBattery;
-      document.getElementById('snr').textContent          = snr;
-      document.getElementById('vescVoltage').textContent  = (vescVolt_dV / 10).toFixed(1);
+      document.getElementById('snr').textContent           = snr;
+      document.getElementById('vescVoltage').textContent   = voltVal;
+
+      cv.state        = state;
+      cv.lineDistance = lineDistance;
+      cv.lineState    = lineNames[lineState] || lineState;
+      cv.amps         = ampsVal;
+      cv.temp         = temp > 0 ? temp : 0;
+      cv.rssi         = rssi;
+      cv.snr          = snr;
+      cv.lostPct      = lostPct;
+      cv.winchBat     = winchBattery;
+      cv.remoteBat    = remoteBattery;
+      cv.vescVolt     = voltVal;
 
       const lineStateEl = document.getElementById('lineState');
       lineStateEl.textContent = lineStateNames[lineState] || 'UNKNOWN';
