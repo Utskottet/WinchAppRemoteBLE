@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Winch Remote v1.6</title>
+  <title>Winch Remote v1.7</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -307,14 +307,13 @@
 <body>
   <div class="main-content">
     <div class="header">
-      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.6</span></h1>
+      <h1>🪂 Winch Remote <span style="font-size:10px;color:#888;">v1.7</span></h1>
       <div class="controls">
         <span class="status-dot" id="winchDot"></span><span class="status" id="status">Winch</span>
         <span class="status-dot" id="xctDot"></span><span class="status" id="xctStatus">XCT</span>
         <button onclick="connectAll()" id="connectBtn" style="display:none">Connect</button>
         <button onclick="toggleLog()" id="logBtn" class="log-btn">Start Log</button>
         <button onclick="toggleFullscreen()" class="fullscreen-btn" id="fullscreenBtn">⛶ Full</button>
-        <span class="status" id="xctRaw"></span>
       </div>
     </div>
     
@@ -434,9 +433,6 @@
     </div>
   </div>
 
-  <!-- XCT debug log — remove once protocol is confirmed -->
-  <div id="xctDebug" style="position:fixed;bottom:0;left:0;right:0;background:#111;color:#FFC107;font-size:11px;font-family:monospace;height:80px;overflow-y:auto;padding:4px;z-index:999;"></div>
-
   <script>
     // ── Winch BLE (NUS) ──────────────────────────────────────────────────────
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -445,30 +441,54 @@
 
     let device, server, txChar, rxChar;
 
-    // ── Logging ───────────────────────────────────────────────────────────────
-    const LOG_HEADER = 'timestamp,state,line_distance_m,line_state,amps_A,temp_C,' +
-                       'rssi_dBm,snr_dB,lost_pct,winch_bat_pct,remote_bat_pct,' +
-                       'winch_voltage_V,speed_kmh,gps_alt_m';
-
-    const cv = {  // current values — updated by both telemetry sources
-      state:'-', lineDistance:'-', lineState:'-', amps:'-', temp:'-',
-      rssi:'-', snr:'-', lostPct:'-', winchBat:'-', remoteBat:'-',
-      vescVolt:'-', speed:'-', gpsAlt:'-'
+    // ── Current values (updated by both telemetry sources) ───────────────────
+    const cv = {
+      state:0, lineDistance:0, lineState:'-', amps:0, temp:0,
+      rssi:0, snr:0, lostPct:0, winchBat:0, remoteBat:0,
+      vescVolt:0, speed:0, gpsAlt:0
     };
 
-    let logActive = false;
-    let logRows   = [];
-    let logTimer  = null;
+    // ── Logging ───────────────────────────────────────────────────────────────
+    const LOG_HEADER =
+      'timestamp,elapsed_s,state,line_state,' +
+      'line_distance_m,line_speed_ms,' +
+      'alt_gain_m,climb_rate_ms,' +
+      'speed_kmh,amps_A,voltage_V,power_kW,energy_Wh,' +
+      'rssi_dBm,snr_dB,lost_pct';
 
-    function toggleLog() {
-      logActive ? stopLog() : startLog();
-    }
+    let logActive   = false;
+    let logRows     = [];
+    let logTimer    = null;
+    let logStart    = null;   // Date when logging started
+    let altBaseline = null;   // GPS alt at first valid reading
+    let prevAlt     = null;   // for climb rate
+    let prevLine    = null;   // for line speed
+    let prevTs      = null;   // previous row timestamp (ms)
+    let energyWh    = 0;      // cumulative energy
+
+    // summary peaks
+    let maxAltGain  = 0;
+    let maxSpeed    = 0;
+    let maxClimb    = 0;
+    let maxPower    = 0;
+    let maxLine     = 0;
+    let maxAmps     = 0;
+
+    function toggleLog() { logActive ? stopLog() : startLog(); }
 
     function startLog() {
-      logActive = true;
-      logRows   = [];
-      logTimer  = setInterval(writeLogRow, 1000);
-      const btn = document.getElementById('logBtn');
+      logActive   = true;
+      logRows     = [];
+      logStart    = new Date();
+      altBaseline = cv.gpsAlt || null;
+      prevAlt     = altBaseline;
+      prevLine    = cv.lineDistance;
+      prevTs      = Date.now();
+      energyWh    = 0;
+      maxAltGain  = 0; maxSpeed = 0; maxClimb = 0;
+      maxPower    = 0; maxLine  = 0; maxAmps  = 0;
+      logTimer    = setInterval(writeLogRow, 1000);
+      const btn   = document.getElementById('logBtn');
       btn.textContent = 'Stop Log';
       btn.classList.add('active');
     }
@@ -483,20 +503,75 @@
     }
 
     function writeLogRow() {
-      const ts = new Date().toISOString();
-      logRows.push([ts, cv.state, cv.lineDistance, cv.lineState, cv.amps,
-                    cv.temp, cv.rssi, cv.snr, cv.lostPct, cv.winchBat,
-                    cv.remoteBat, cv.vescVolt, cv.speed, cv.gpsAlt].join(','));
+      const now      = Date.now();
+      const elapsed  = ((now - logStart) / 1000).toFixed(1);
+      const dt       = (now - prevTs) / 1000;  // seconds since last row
+      prevTs         = now;
+
+      // Altitude gain (set baseline on first valid GPS reading)
+      if (altBaseline === null && cv.gpsAlt !== 0) {
+        altBaseline = cv.gpsAlt;
+        prevAlt     = cv.gpsAlt;
+      }
+      const altGain   = altBaseline !== null ? +(cv.gpsAlt - altBaseline).toFixed(1) : 0;
+      const climbRate = prevAlt !== null && dt > 0
+                        ? +((cv.gpsAlt - prevAlt) / dt).toFixed(2) : 0;
+      prevAlt = cv.gpsAlt;
+
+      // Line speed
+      const lineSpeed = prevLine !== null && dt > 0
+                        ? +((cv.lineDistance - prevLine) / dt).toFixed(2) : 0;
+      prevLine = cv.lineDistance;
+
+      // Power & energy
+      const powerKW  = +(cv.amps * cv.vescVolt / 1000).toFixed(3);
+      energyWh      += powerKW * (dt / 3600);
+
+      // Update peaks
+      if (altGain   > maxAltGain) maxAltGain = altGain;
+      if (cv.speed  > maxSpeed)   maxSpeed   = cv.speed;
+      if (climbRate > maxClimb)   maxClimb   = climbRate;
+      if (powerKW   > maxPower)   maxPower   = powerKW;
+      if (cv.lineDistance > maxLine) maxLine = cv.lineDistance;
+      if (cv.amps   > maxAmps)    maxAmps    = cv.amps;
+
+      logRows.push([
+        new Date().toISOString(), elapsed,
+        cv.state, cv.lineState,
+        cv.lineDistance, lineSpeed,
+        altGain, climbRate,
+        cv.speed, cv.amps, cv.vescVolt, powerKW, +energyWh.toFixed(4),
+        cv.rssi, cv.snr, cv.lostPct
+      ].join(','));
     }
 
     function downloadCSV() {
       if (!logRows.length) return;
-      const csv  = LOG_HEADER + '\n' + logRows.join('\n');
+
+      const duration = ((Date.now() - logStart) / 1000).toFixed(0);
+      const eff      = energyWh > 0 ? (maxAltGain / energyWh).toFixed(0) : 'N/A';
+      const dateStr  = logStart.toISOString().slice(0,19).replace('T',' ');
+
+      const summary = [
+        '# Flight: ' + dateStr,
+        '# Duration: ' + duration + 's',
+        '# Max height gained: ' + maxAltGain + ' m',
+        '# Max speed: ' + maxSpeed + ' km/h',
+        '# Max climb rate: ' + maxClimb + ' m/s',
+        '# Max amps: ' + maxAmps + ' A',
+        '# Max power: ' + maxPower + ' kW',
+        '# Total energy: ' + energyWh.toFixed(3) + ' Wh',
+        '# Efficiency: ' + eff + ' m/Wh',
+        '# Max line out: ' + maxLine + ' m',
+        '#'
+      ].join('\n');
+
+      const csv  = summary + '\n' + LOG_HEADER + '\n' + logRows.join('\n');
       const blob = new Blob([csv], { type: 'text/csv' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = 'winch_' + new Date().toISOString().slice(0,19).replace(/[T:]/g,'-') + '.csv';
+      a.download = 'winch_' + logStart.toISOString().slice(0,19).replace(/[T:]/g,'-') + '.csv';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -582,27 +657,13 @@
     }
 
     // ── XC Tracer data handler ────────────────────────────────────────────────
-    function xctLog(msg) {
-      const d = document.getElementById('xctDebug');
-      d.innerHTML += msg + '<br>';
-      d.scrollTop = d.scrollHeight;
-    }
-
     function handleXCTData(event) {
-      const chunk = new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
-      xctBuffer += chunk;
+      xctBuffer += new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
       let nl;
       while ((nl = xctBuffer.indexOf('\n')) !== -1) {
         const line = xctBuffer.slice(0, nl).trim();
         xctBuffer = xctBuffer.slice(nl + 1);
-        if (line) {
-          xctLog(line);
-          parseNMEA(line);
-        }
-      }
-      // No newline found yet — log raw chunk so we can see what arrives
-      if (xctBuffer.length > 0 && xctBuffer.length < 200) {
-        xctLog('buf: ' + xctBuffer);
+        if (line) parseNMEA(line);
       }
     }
 
