@@ -8,7 +8,7 @@ Paragliding winch control system. The winch controller communicates with a handh
 
 | Folder | Description | Hardware |
 |--------|-------------|----------|
-| `winch/` | Winch controller firmware | M5Stack Core (ESP32) |
+| `winch/` | Winch controller firmware | M5Stack Core (ESP32) + Waveshare LoRa 868 MHz |
 | `remote/` | Handheld remote firmware | Seeed XIAO nRF52840 + Wio SX1262 |
 | `sim/` | LoRa simulator — mimics winch transmissions for development without the winch | Seeed XIAO nRF52840 + Wio SX1262 |
 | `archive/itsy-bitsy/` | Old test firmware, not in use | Adafruit ItsyBitsy |
