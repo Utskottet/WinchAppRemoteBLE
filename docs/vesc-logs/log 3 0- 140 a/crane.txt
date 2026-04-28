@@ -1,0 +1,7 @@
+    ((= state 0) (setq target-current 0))
+    ((= state 1) (setq target-current 20)) 7kg
+    ((= state 2) (setq target-current 40)) 10-17kg
+    ((= state 3) (setq target-current 60)) 23-27kg
+    ((= state 4) (setq target-current 100)) 50kg
+    ((= state 5) (setq target-current 120)) 43 - 56kg
+    ((= state 6) (setq target-current 140)) 63-67 kg

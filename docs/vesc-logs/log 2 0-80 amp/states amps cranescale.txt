@@ -1,0 +1,8 @@
+    ((= state 0) (setq target-current 0))
+    ((= state 1) (setq target-current 20)) 7kg
+    ((= state 2) (setq target-current 40)) 15 kg
+    ((= state 3) (setq target-current 50)) 20 kg
+    ((= state 4) (setq target-current 60)) 25 kg
+    ((= state 5) (setq target-current 70)) 30 kg
+    ((= state 6) (setq target-current 80)) 33 kg
+    (t (print "Invalid state"))
