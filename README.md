@@ -22,4 +22,8 @@ Phone  <── BLE ──>  Remote (Xiao nRF52840)  <── 868 MHz LoRa ──>
 
 ## Docs
 
+- [Specifications](docs/specifications.md)
+- [Upgrade plan](docs/upgrade_plan.md)
+- [Force calibration plan](docs/winch_force_calibration_plan.md)
 - [Antenna tests](docs/antenna_tests.md)
+- [Lisp scripts](docs/lisp.txt)
