@@ -1,0 +1,69 @@
+#include <M5Stack.h>
+#include <M5LoRa.h>
+#include "LoraStruct.h"
+
+#define BAND    434E6  // Frequency band
+
+StateStruct StateStruct;
+VescStruct VescStruct = {0, 0, 0, 0};  // Initialize with zeros
+
+unsigned long lastRxLoraMessageMillis = 0;
+unsigned int crcErrorCount = 0;
+
+
+void setup() {
+  M5.begin();
+  Serial.begin(115200);
+
+  LoRa.begin(BAND);
+  //Serial.println("LoRa Initialized");
+    LoRa.enableCrc();
+
+}
+
+void loop() {
+  // Check for incoming LoRa messages
+  int packetSize = LoRa.parsePacket();
+  if (packetSize > 0) {
+    if (packetSize == sizeof(StateStruct)) {
+      // Correct packet size received, CRC is okay
+      LoRa.readBytes((uint8_t*)&StateStruct, sizeof(StateStruct));
+
+      int rssi = LoRa.packetRssi();
+      float snr = LoRa.packetSnr();
+
+      Serial.print("Received LoraID: ");
+      Serial.print(StateStruct.LoraID);
+      Serial.print(", LoraState: ");
+      Serial.print(StateStruct.LoraState);
+      Serial.print(", RSSI: ");
+      Serial.print(rssi);
+      Serial.print(" dB, SNR: ");
+      Serial.print(snr, 2);  // Print SNR with two decimal places
+      Serial.print(", Total CRC Errors: ");
+      Serial.println(crcErrorCount);
+
+      lastRxLoraMessageMillis = millis();  // Update last received time here
+
+      // Simulate some values
+      VescStruct.LineOut = 453;  // dummy line output value in meters
+      VescStruct.Amp = 150;       // dummy amperage
+      VescStruct.VescBattery = 75;  // dummy battery level percentage
+      VescStruct.VescTemp = 25;      // dummy temperature in Celsius
+
+      // Send back a response
+      if (LoRa.beginPacket()) {
+        LoRa.write((uint8_t*)&VescStruct, sizeof(VescStruct));
+        LoRa.endPacket();
+        // Serial.println("Sent VescStruct back");
+      }
+    } else {
+      // Received a packet but with incorrect size, count as CRC error
+      crcErrorCount++;
+      //Serial.print("CRC Error detected. Total CRC Errors: ");
+      //Serial.println(crcErrorCount);
+    }
+  } 
+
+  delay(10); // Small delay to stabilize loop
+}

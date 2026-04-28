@@ -1,0 +1,52 @@
+#include <M5Stack.h>
+#include "LoRaComm.h"
+#include "LoraStruct.h"
+#include "Display.h"
+#include "StepperControl.h"  // Add this line
+
+#define BAND    434E6  // Frequency band
+
+LoRaComm lora(BAND);
+Display display;
+StepperControl stepper;  // Add this line
+VescStruct VescStruct = {0, 0, 0, 0};
+unsigned long lastRxLoraMessageMillis = 0;
+unsigned int crcErrorCount = 0;
+
+void setup() {
+    lora.init();
+    display.init();
+    stepper.setup();  // Add this line
+}
+
+void loop() {
+    StateStruct state;
+    int rssi;
+    float snr;
+
+    // Now, LoraReceive only returns true for relevant ID (55)
+    if (lora.LoraReceive(state, rssi, snr)) {
+        Serial.print("Processed LoraID: 55, CurrentState set to ");
+        Serial.println(lora.CurrentState);
+
+        // Update dummy values
+        VescStruct.LineOut = 1500;
+        VescStruct.Amp = 55;
+        VescStruct.VescBattery = 75;
+        VescStruct.VescTemp = 25;
+
+        // Send response
+        lora.LoraSend(VescStruct);
+
+        lastRxLoraMessageMillis = millis();  // Update last received time
+    } else {
+        crcErrorCount++;
+    }
+
+    // Update the display
+    display.updateDisplay(lora.CurrentState, lora.LastRSSI, lora.LastSNR, crcErrorCount);
+
+    stepper.loop();  // Add this line
+
+    delay(10); // Small delay to stabilize loop
+}
