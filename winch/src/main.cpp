@@ -1,4 +1,5 @@
 #include <M5Stack.h>
+#include <Preferences.h>
 #include "LoRaComm.h"
 #include "Lorastruct.h"
 #include "Display.h"
@@ -14,6 +15,7 @@ SemaphoreHandle_t spiMutex; // Global mutex instance
 LoRaComm lora;
 Display display;
 StepperControl stepper(lora);
+Preferences prefs;
 
 volatile int lastLoRaRSSI = 0;
 volatile float lastLoRaSNR = 0.0;
@@ -33,12 +35,15 @@ const int lineStopThreshold = 35;
 unsigned long lastButtonPressTime = 0;
 int buttonCPressCount = 0;
 
-// Moved these to LoRa task
-// static uint8_t lastCmdSeq = 0;
-// static uint8_t metricsSeq = 0;
-// static unsigned long lastMetrics = 0;
-// static unsigned long lastDisplay = 0;
 int currentState = 0;
+
+// ---- Amp table (state 0-6, amps per state) ----
+int baseCurrents[7] = {0, 20, 40, 60, 100, 120, 140};
+
+// ---- Settings mode ----
+bool settingsMode = false;
+int settingsSelectedState = 1;
+bool forceDisplayRedraw = false;
 
 static unsigned long lastDisplay = 0;  // display only
 
@@ -56,7 +61,7 @@ void LoRaTask(void *pvParameters) {
             currentState = cmd.state;
             lastCmdSeq = cmd.seq;
 
-            // 🟢 Only allow state change from remote if NOT lineStopActivated
+            // Only allow state change from remote if NOT lineStopActivated
             if (!lineStopActivated) {
                 currentState = cmd.state;
             } else {
@@ -100,7 +105,7 @@ void LoRaTask(void *pvParameters) {
             lora.sendMetrics(m);
             lastMetrics = millis();
 
-            // 🟢 Update RSSI/SNR for local display
+            // Update RSSI/SNR for local display
             lastLoRaRSSI = lora.getLastRSSI();
             lastLoRaSNR  = lora.getLastSNR();
         }
@@ -133,7 +138,7 @@ void LoRaTask(void *pvParameters) {
             lora.sendMetrics(m);
             lastMetrics = millis();
 
-            // 🟢 Update RSSI/SNR for local display
+            // Update RSSI/SNR for local display
             lastLoRaRSSI = lora.getLastRSSI();
             lastLoRaSNR  = lora.getLastSNR();
         }
@@ -153,6 +158,17 @@ void setup() {
 
     spiMutex = xSemaphoreCreateMutex();   // CREATE MUTEX FIRST
     Serial.println("Mutex created");
+
+    // Load amp values from NVS (fall back to defaults if not set)
+    prefs.begin("winch", true); // read-only
+    baseCurrents[1] = prefs.getInt("amp1", 20);
+    baseCurrents[2] = prefs.getInt("amp2", 40);
+    baseCurrents[3] = prefs.getInt("amp3", 60);
+    baseCurrents[4] = prefs.getInt("amp4", 100);
+    baseCurrents[5] = prefs.getInt("amp5", 120);
+    baseCurrents[6] = prefs.getInt("amp6", 140);
+    prefs.end();
+    Serial.println("NVS loaded");
 
     M5.begin();
     Serial.println("M5Stack initialized");
@@ -183,8 +199,32 @@ void setup() {
 }
 
 void loop() {
-    // --- Button C: Reset/Deactivate line stop ---
-    if (M5.BtnC.wasPressed()) {
+    // --- Button B: Toggle settings mode ---
+    if (M5.BtnB.wasPressed()) {
+        if (settingsMode) {
+            // Exit settings: save all amp values to NVS
+            prefs.begin("winch", false);
+            prefs.putInt("amp1", baseCurrents[1]);
+            prefs.putInt("amp2", baseCurrents[2]);
+            prefs.putInt("amp3", baseCurrents[3]);
+            prefs.putInt("amp4", baseCurrents[4]);
+            prefs.putInt("amp5", baseCurrents[5]);
+            prefs.putInt("amp6", baseCurrents[6]);
+            prefs.end();
+            settingsMode = false;
+            forceDisplayRedraw = true;
+            display.init(); // restore static UI elements
+            Serial.println("Settings saved, exiting settings mode");
+        } else {
+            settingsMode = true;
+            settingsSelectedState = 1;
+            display.updateSettingsDisplay(settingsSelectedState, baseCurrents);
+            Serial.println("Entering settings mode");
+        }
+    }
+
+    // --- Button C: line reset / deactivate (normal mode only) ---
+    if (!settingsMode && M5.BtnC.wasPressed()) {
         unsigned long currentTime = millis();
         if (currentTime - lastButtonPressTime < 500) {
             buttonCPressCount++;
@@ -206,7 +246,7 @@ void loop() {
     // --- Calculate adjusted LineOut value ---
     int32_t adjustedLineOut = abs(can_distance - lineOutOffset);
 
-    // --- Arm/Trigger line stop ---
+    // --- Arm/Trigger line stop (always runs) ---
     if (!armLineStop && adjustedLineOut > armLineStopThreshold) {
         armLineStop = true;
         Serial.println("LineStop armed");
@@ -216,59 +256,87 @@ void loop() {
         Serial.println("LineStop activated");
     }
 
-        // 🟢 --- Failsafe: Force STOP if lineStopActivated ---
+    // --- Failsafe: Force STOP if lineStopActivated ---
     if (lineStopActivated) {
         currentState = 0;
     }
 
-    // --- Only update display if something changed ---
-    static int lastDisplayedState = -1;
-    static int lastDisplayedLineOut = -1;
-    static int lastDisplayedCurrent = -9999;
-    static bool lastDisplayedLineStopArmed = false;
-    static bool lastDisplayedLineStopActivated = false;
-    static int lastDisplayedTemperature = -9999;
-    static int lastDisplayedRSSI = 12345;    // impossible value to force update first loop
-    static float lastDisplayedSNR = 12345.0; // impossible value to force update first loop
-    //Serial.printf("[Main] armLineStop=%d, lineStopActivated=%d\n", armLineStop, lineStopActivated);
+    // --- Settings mode: navigation and display ---
+    if (settingsMode) {
+        // Button A: cycle selected state 1→2→3→4→5→6→1
+        if (M5.BtnA.wasPressed()) {
+            settingsSelectedState = (settingsSelectedState % 6) + 1;
+            display.updateSettingsDisplay(settingsSelectedState, baseCurrents);
+        }
 
+        // Button C short press: +10A, long press: -10A
+        static unsigned long btnCSettingsStart = 0;
+        if (M5.BtnC.wasPressed()) {
+            btnCSettingsStart = millis();
+        }
+        if (M5.BtnC.wasReleased()) {
+            if (millis() - btnCSettingsStart > 500) {
+                // Long press: decrement
+                baseCurrents[settingsSelectedState] -= 10;
+                if (baseCurrents[settingsSelectedState] < 0) baseCurrents[settingsSelectedState] = 200;
+            } else {
+                // Short press: increment
+                baseCurrents[settingsSelectedState] += 10;
+                if (baseCurrents[settingsSelectedState] > 200) baseCurrents[settingsSelectedState] = 0;
+            }
+            display.updateSettingsDisplay(settingsSelectedState, baseCurrents);
+        }
 
-    if (
-        currentState != lastDisplayedState ||
-        adjustedLineOut != lastDisplayedLineOut ||
-        can_current != lastDisplayedCurrent ||
-        armLineStop != lastDisplayedLineStopArmed ||
-        lineStopActivated != lastDisplayedLineStopActivated ||
-        can_temperature != lastDisplayedTemperature ||
-        lastLoRaRSSI != lastDisplayedRSSI ||
-        lastLoRaSNR != lastDisplayedSNR
-    ) {
-        display.updateDisplay(
-            currentState,
-            lastLoRaRSSI,
-            lastLoRaSNR,
-            adjustedLineOut,
-            can_current,
-            armLineStop,
-            lineStopActivated,
-            can_temperature
-        );
-        lastDisplayedState = currentState;
-        lastDisplayedLineOut = adjustedLineOut;
-        lastDisplayedCurrent = can_current;
-        lastDisplayedLineStopArmed = armLineStop;
-        lastDisplayedLineStopActivated = lineStopActivated;
-        lastDisplayedTemperature = can_temperature;
-        lastDisplayedRSSI = lastLoRaRSSI;
-        lastDisplayedSNR = lastLoRaSNR;
+    } else {
+        // --- Normal display dirty-check ---
+        static int lastDisplayedState = -1;
+        static int lastDisplayedLineOut = -1;
+        static int lastDisplayedCurrent = -9999;
+        static bool lastDisplayedLineStopArmed = false;
+        static bool lastDisplayedLineStopActivated = false;
+        static int lastDisplayedTemperature = -9999;
+        static int lastDisplayedRSSI = 12345;    // impossible value to force update first loop
+        static float lastDisplayedSNR = 12345.0; // impossible value to force update first loop
+
+        if (
+            forceDisplayRedraw ||
+            currentState != lastDisplayedState ||
+            adjustedLineOut != lastDisplayedLineOut ||
+            can_current != lastDisplayedCurrent ||
+            armLineStop != lastDisplayedLineStopArmed ||
+            lineStopActivated != lastDisplayedLineStopActivated ||
+            can_temperature != lastDisplayedTemperature ||
+            lastLoRaRSSI != lastDisplayedRSSI ||
+            lastLoRaSNR != lastDisplayedSNR
+        ) {
+            display.updateDisplay(
+                currentState,
+                lastLoRaRSSI,
+                lastLoRaSNR,
+                adjustedLineOut,
+                can_current,
+                armLineStop,
+                lineStopActivated,
+                can_temperature
+            );
+            lastDisplayedState = currentState;
+            lastDisplayedLineOut = adjustedLineOut;
+            lastDisplayedCurrent = can_current;
+            lastDisplayedLineStopArmed = armLineStop;
+            lastDisplayedLineStopActivated = lineStopActivated;
+            lastDisplayedTemperature = can_temperature;
+            lastDisplayedRSSI = lastLoRaRSSI;
+            lastDisplayedSNR = lastLoRaSNR;
+            forceDisplayRedraw = false;
+        }
+
+        // --- Button A: Manual toggle stepper (normal mode only) ---
+        if (M5.BtnA.wasPressed()) {
+            buttonToggled = !buttonToggled;
+        }
     }
 
-    // --- Button A: Manual toggle stepper ---
-    if (M5.BtnA.wasPressed()) {
-        buttonToggled = !buttonToggled;
-    }
-
-    // --- Stepper logic ---
+    // --- Stepper logic (always runs) ---
     if (buttonToggled) {
         stepper.runStepper();
     } else {
@@ -280,22 +348,10 @@ void loop() {
     }
     stepper.update();
 
-    // --- CAN ---
+    // --- CAN (always runs) ---
     can_send_message();
     can_receive_message();
 
     M5.update();
     delay(5); // keep loop responsive
-
-    // (Optional: loop frequency debug)
-    /*
-    static unsigned long lastDebug = 0;
-    static int loopCount = 0;
-    loopCount++;
-    if (millis() - lastDebug > 1000) {
-        Serial.printf("Loops per second: %d\n", loopCount);
-        loopCount = 0;
-        lastDebug = millis();
-    }
-    */
 }

@@ -4,8 +4,9 @@
 #include "driver/twai.h"
 #include "LoRaComm.h"
 
-extern int currentState; // This tells CAN.cpp to use the global variable from main.cpp
-extern LoRaComm lora;  // Access the single instance of LoRaComm
+extern int currentState;
+extern int baseCurrents[7];
+extern LoRaComm lora;
 
 const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_17, GPIO_NUM_16, TWAI_MODE_NORMAL);
 const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
@@ -25,10 +26,8 @@ void can_setup() {
 
 void can_send_message() {
     static unsigned long lastSent = millis();
-
-    // Send custom CAN message every 200ms
     if (millis() - lastSent >= 200) {
-        send_custom_can_message(1, currentState);  // Use the external currentState variable
+        send_custom_can_message(1, (int16_t)baseCurrents[currentState]);
         lastSent = millis();
     }
 }
@@ -64,10 +63,10 @@ void can_transmit_eid(uint32_t id, const uint8_t *data, uint8_t len) {
     twai_transmit(&message, pdMS_TO_TICKS(1000));
 }
 
-void send_custom_can_message(uint8_t controller_id, int8_t custom_value) {
-    uint8_t buffer[4] = {0};
-    buffer[0] = (uint8_t)custom_value;  // Set the first byte to the custom value, cast to uint8_t
-    uint32_t id = ((uint32_t)controller_id) | ((uint32_t)CAN_PACKET_SET_CURRENT << 8);  // Using the same ID for simplicity
-
-    can_transmit_eid(id, buffer, 1);  // Sending only 1 byte of data
+void send_custom_can_message(uint8_t controller_id, int16_t amps) {
+    uint8_t buffer[2];
+    buffer[0] = (uint8_t)((amps >> 8) & 0xFF); // High byte
+    buffer[1] = (uint8_t)(amps & 0xFF);         // Low byte
+    uint32_t id = ((uint32_t)controller_id) | ((uint32_t)CAN_PACKET_SET_CURRENT << 8);
+    can_transmit_eid(id, buffer, 2);
 }

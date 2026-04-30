@@ -47,7 +47,7 @@ void Display::drawButtonLabels() {
     M5.Lcd.setCursor(35, 210);
     M5.Lcd.print("TEST");
     M5.Lcd.setCursor(120, 210);
-    M5.Lcd.print("REWIND");
+    M5.Lcd.print("SETUP");
     M5.Lcd.setCursor(245, 210);
     M5.Lcd.print("RESET");
 }
@@ -160,4 +160,41 @@ void Display::drawSignalBars(int rssi) {
 // Keep original function for compatibility
 void Display::drawStaticLabels() {
     drawButtonLabels();
+}
+
+void Display::updateSettingsDisplay(int selectedState, int baseCurrents[7]) {
+    xSemaphoreTake(spiMutex, portMAX_DELAY);
+
+    M5.Lcd.fillRect(0, 0, 320, 200, BLACK);
+
+    // Title
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setTextColor(PURE_WHITE);
+    M5.Lcd.setCursor(90, 5);
+    M5.Lcd.print("AMP SETTINGS");
+
+    M5.Lcd.drawFastHLine(0, 25, 320, ACCENT_BLUE);
+
+    // List states 1-6 with their amp values
+    for (int i = 1; i <= 6; i++) {
+        int y = 30 + (i - 1) * 27;
+        if (i == selectedState) {
+            M5.Lcd.fillRect(5, y - 2, 310, 24, ACCENT_BLUE);
+            M5.Lcd.setTextColor(BLACK);
+        } else {
+            M5.Lcd.setTextColor(PURE_WHITE);
+        }
+        M5.Lcd.setTextSize(2);
+        M5.Lcd.setCursor(15, y);
+        M5.Lcd.printf("State %d:  %3d A", i, baseCurrents[i]);
+    }
+
+    // Instructions
+    M5.Lcd.drawFastHLine(0, 197, 320, ACCENT_BLUE);
+    M5.Lcd.setTextSize(1);
+    M5.Lcd.setTextColor(LIGHT_BLUE);
+    M5.Lcd.setCursor(5, 202);
+    M5.Lcd.print("A:Select   C:+10A  LongC:-10A   B:Save+Exit");
+
+    xSemaphoreGive(spiMutex);
 }

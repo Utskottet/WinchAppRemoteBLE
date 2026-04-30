@@ -16,7 +16,7 @@ void can_send_message();
 void can_receive_message();
 
 // Function to send a custom CAN message
-void send_custom_can_message(uint8_t controller_id, int8_t custom_value);
+void send_custom_can_message(uint8_t controller_id, int16_t amps);
 
 // CAN packet IDs
 #define CAN_PACKET_SET_CURRENT 1
