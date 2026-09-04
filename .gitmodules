@@ -1,0 +1,4 @@
+[submodule "experiments/Fork Ikoka Nano/symbols/OPL_Kicad_Library"]
+	path = experiments/Fork Ikoka Nano/symbols/OPL_Kicad_Library
+	url = https://github.com/ndoo/OPL_Kicad_Library.git
+	branch = xiao-ble-symbols
